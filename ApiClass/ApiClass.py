@@ -3,10 +3,10 @@ import os
 import pprint
 import time
 import requests
+
 from datetime import datetime, timedelta
 from EnvClass.EnvClass import EnvClass
 from DBClass.DBClass import DBClass
-
 
 class ApiClass:
     def __init__(self, envDir: str = '.env', realServer: bool = True):
@@ -33,8 +33,6 @@ class ApiClass:
         self.initCashDeposit()
         self.initStockDeposit()
 
-        print(self.dbHandler.checkMySqlTableExist('asdf'))
-
     def getAccessToken(self):
         url = '/oauth2/tokenP'
         body = {
@@ -43,7 +41,9 @@ class ApiClass:
             'appsecret': self.secretkey,
 
         }
+
         response = self.callApi('POST', self.domain + url, body=json.dumps(body))['body']
+
         if response is not None:
             self.accessToken = 'Bearer ' + response['access_token']
             self.accessTokenExpired = response['access_token_token_expired']
@@ -122,8 +122,9 @@ class ApiClass:
 
             response = self.callApi('GET', self.domain + stockDepositUrl, header=stockDepositHeader,
                                     body=stockDepositBody)
+            for item in response['body']['output1']:
+                data[f'{item['pdno']}'] = item
 
-            data.update(response['body']['output1'])
             if response['header']['tr_cont'] in ['F', 'M']:
                 isNextData = 'N'
                 beforeCTX_AREA_FK100 = response['body']['ctx_area_fk100']
@@ -131,6 +132,7 @@ class ApiClass:
                 continue
             break
 
+        self.dbHandler.deleteMongo('stockDeposit')
         self.dbHandler.insertMongo('stockDeposit', data)
 
     def getStockPeriodData(self, stockCode: str, startDate, endDate):
@@ -138,7 +140,6 @@ class ApiClass:
         data = list()
         startDatetime = datetime.strptime(startDate, "%Y%m%d")
         endDatetime = datetime.strptime(endDate, "%Y%m%d")
-
 
         while True:
             tempDatetime = startDatetime - timedelta(days=100)
@@ -150,8 +151,6 @@ class ApiClass:
                 'tr_id': 'FHKST03010100',
 
             }
-
-            print(startDatetime.strftime('%Y%m%d'), tempDatetime.strftime('%Y%m%d'))
 
             stockPriceDataBody = {
                 'FID_COND_MRKT_DIV_CODE': 'J',
@@ -165,15 +164,15 @@ class ApiClass:
 
             response = self.callApi('GET', self.domain + stockPriceDataUrl, header=stockPriceDataHeader,
                                     body=stockPriceDataBody)
-
             data.append(response['body']['output2'])
+
             if temp:
                 startDatetime = tempDatetime - timedelta(days=1)
                 time.sleep(0.5)
                 continue
             break
 
-        # pprint.pprint(data[0])
+        self.dbHandler.mySqlInsertStockData(stockCode, data)
 
     @staticmethod
     def callApi(method, url, header=None, body=None):
@@ -187,8 +186,6 @@ class ApiClass:
             else:
                 return None
 
-            # print(response.text)
-
             if response.status_code == 200:
                 return {
                     'header': response.headers,
@@ -199,8 +196,6 @@ class ApiClass:
 
             if errCount > 3:
                 break
-
-        # error method
 
         print('api call error')
 
